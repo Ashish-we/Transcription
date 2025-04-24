@@ -3,14 +3,25 @@ import csv
 import os;
 import warnings
 from tqdm import tqdm
-from jiwer import wer
+import jiwer 
 
+transforms = jiwer.Compose(
+    [
+        jiwer.ExpandCommonEnglishContractions(),
+        jiwer.RemoveEmptyStrings(),
+        jiwer.ToLowerCase(),
+        jiwer.RemoveMultipleSpaces(),
+        jiwer.Strip(),
+        jiwer.RemovePunctuation(),
+        jiwer.ReduceToListOfListOfWords(),
+    ]
+)
 
 # Suppress specific warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-#can add other supported formates and can also write code to convert formates by using  which is not needed in our dataset
+#can add other supported formates and can also write code to convert formates  which is not needed in our dataset
 supported_formats = (".mp3") 
 
 def transcribe_with_whisper(audio_dir):
@@ -31,10 +42,13 @@ def transcribe_with_whisper(audio_dir):
         txt_path = os.path.join(audio_dir, txt_filename)
         if os.path.exists(txt_path):
             with open(txt_path, "r", encoding="utf-8") as gt_file:
-                ground_truth = gt_file.read().strip().lower() 
-                predicted_text = result["text"].strip().replace('.', '').lower() #remove period because our dataset ground truth dosenot contains period and it was reducing the accuracy 
+                ground_truth = gt_file.read()
+                predicted_text = result["text"] 
                 #Word Error Rate calculation
-                error = wer(ground_truth, predicted_text)
+                error = jiwer.wer(ground_truth, 
+                            predicted_text,
+                            truth_transform=transforms,
+                            hypothesis_transform=transforms,)
                 #calculate accuracy
                 accuracy = (1 - error) * 100
         else:
@@ -59,16 +73,18 @@ def save_transcriptions_to_csv(transcriptions, output_file="baseTranscriptions.c
             writer.writerow([entry["filename"], entry["transcription"], entry["ground_truth"], entry["accuracy"]])
 
 # Run transcription on the audio datasets
-audio_dir = "dataset/b/"
+audio_dir = "dataset/a/"
 transcriptions = transcribe_with_whisper(audio_dir)
+print("Transcriptions : ", transcriptions)
 
-# Calculate overall accuracy, excluding invalid/negative values
-valid_accuracies = [entry["accuracy"] for entry in transcriptions if entry["accuracy"] >= 0]
+# Calculate overall accuracy,
+# Treat negative accuracies as 0
+adjusted_accuracies = [entry["accuracy"] if entry["accuracy"] >= 0 else 0 for entry in transcriptions]
 
 # Calculate overall accuracy
-if valid_accuracies:
-    overall_accuracy = sum(valid_accuracies) / len(valid_accuracies)
-    print(f"\n✅ Overall Accuracy (filtered): {overall_accuracy:.2f}%")
+if adjusted_accuracies:
+    overall_accuracy = sum(adjusted_accuracies) / len(adjusted_accuracies)
+    print(f"\nOverall Accuracy (adjusted): {overall_accuracy:.2f}%")
 
 # Save the transcriptions to CSV
 save_transcriptions_to_csv(transcriptions)
